@@ -1,0 +1,9 @@
+lib
+bin
+CMakeFiles
+CMakeCache
+cmake_install.cmake
+Makefile
+compile_commands.json
+install_manifest.txt
+*.pc
