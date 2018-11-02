@@ -29,7 +29,8 @@
 #define __FILENAME__ (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 
 //Log system
-#define ERROR (std::cerr << RED "Error : " GRN  << __FILENAME__ << ":" STR(__LINE__) RESET " ")
-#define INFO (std::cout << YEL "Info : " GRN  << __FILENAME__ << ":" STR(__LINE__) RESET " ")
+#define ERROR   (std::cerr << BOLD RED "Error : "   RESET GRN  << __FILENAME__ << ":" STR(__LINE__) RESET " ")
+#define INFO    (std::cout << BOLD WHT "Info : "    RESET GRN  << __FILENAME__ << ":" STR(__LINE__) RESET " ")
+#define WARNING (std::cout << BOLD YEL "Warning : " RESET GRN  << __FILENAME__ << ":" STR(__LINE__) RESET " ")
 
 #endif

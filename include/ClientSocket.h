@@ -12,14 +12,14 @@ class ClientSocket
         ClientSocket();
 
         /* \brief Basic destructor, does nothing here */
-        virtual ~ClientSocket(){};
+        virtual ~ClientSocket();
 
         /* \brief Add a message to read for this client
          *
          * This function is aimed to be overwrite
          * \param data the data received. Do not keep it, it will be destroyed by the Server at the end of this call
          * \param size the data size*/
-        virtual void feedMessage(uint8_t* data, uint32_t size);
+        virtual bool feedMessage(uint8_t* data, uint32_t size);
 
         uint32_t nbMessage   = 0;     /*!< The number of remaining message*/
         bool     isConnected = true;  /*!< Is the client still connected ?*/

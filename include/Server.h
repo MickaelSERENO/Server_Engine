@@ -27,9 +27,10 @@
 #include "utils.h"
 
 /* \brief The Message received by the Server. */
+template <typename T>
 struct SocketMessage
 {
-    ClientSocket* client; /*!< The client who sends this message*/
+    T client; /*!< The client who sends this message*/
     uint8_t*      data;   /*!< The message*/
     uint32_t      size;   /*!< The data size*/
 
@@ -37,19 +38,19 @@ struct SocketMessage
      * \param c the client who sends the message
      * \param d the client's data
      * \param s the data size in bytes */
-    SocketMessage(ClientSocket* c, uint8_t* d, uint32_t s) : client(c), data(d), size(s)
+    SocketMessage(T c, uint8_t* d, uint32_t s) : client(c), data(d), size(s)
     {}
 
     /* \brief The Copy Constructor
      * \param copy the value to copy */
-    SocketMessage(const SocketMessage& copy) : client(copy.client), size(copy.size)
+    SocketMessage(const SocketMessage<T>& copy) : client(copy.client), size(copy.size)
     {
         data = (uint8_t*)malloc(sizeof(uint8_t*)*size);
         memcpy(data, copy.data, size);
     }
 
     /* \brief Operator= For SocketMessage. Called the copy constructor */
-    SocketMessage& operator=(const SocketMessage& copy)
+    SocketMessage& operator=(const SocketMessage<T>& copy)
     {
         if(this == &copy)
             return *this;
@@ -60,7 +61,7 @@ struct SocketMessage
 
     /* \brief The movement constructor
      * \param mvt the value to move */
-    SocketMessage(SocketMessage&& mvt) : client(mvt.client), data(mvt.data), size(mvt.size)
+    SocketMessage(SocketMessage<T>&& mvt) : client(mvt.client), data(mvt.data), size(mvt.size)
     {
         mvt.data   = NULL;
         mvt.client = NULL;
@@ -85,7 +86,7 @@ class Server
         Server(uint32_t nbReadThread, uint32_t port) : m_nbReadThread(nbReadThread), m_port(port)
         {
             //Allocate memory for the handle messages thread
-            m_buffers       = new std::queue<SocketMessage>[nbReadThread];
+            m_buffers       = new std::queue<SocketMessage<T*>>[nbReadThread];
             m_handleThread  = new std::thread*[nbReadThread];
             m_bufferMutexes = new std::mutex[nbReadThread];
         }
@@ -102,6 +103,7 @@ class Server
             m_acceptThread  = mvt.m_acceptThread;
             m_readThread    = mvt.m_readThread;
             m_handleThread  = mvt.m_handleThread;
+            m_writeThread   = mvt.m_writeThread;
             m_buffers       = mvt.m_buffers;
             m_nbReadThread  = mvt.m_nbReadThread;
             m_currentBuffer = mvt.m_currentBuffer;
@@ -113,12 +115,14 @@ class Server
             mvt.m_acceptThread  = NULL;
             mvt.m_readThread    = NULL;
             mvt.m_handleThread  = NULL;
+            mvt.m_writeThread   = NULL;
+            mvt.buffers         = NULL;
             mvt.m_nbReadThread  = 0;
             mvt.m_currentBuffer = 0;
         }
 
         /* \brief The destructor. Destroy this object and every attached thread */
-        ~Server()
+        virtual ~Server()
         {
             closeServer();
             if(m_buffers)
@@ -131,7 +135,7 @@ class Server
 
         /* \brief Launch the Server and all the communication thread associated
          * \return true on success, false otherwise*/
-        bool launchServer()
+        bool launch()
         {
             m_closeThread = false;
             //Create the socket and make it reusable
@@ -159,6 +163,7 @@ class Server
                         //Launch every thread 
                         m_acceptThread = new std::thread(&Server::acceptConnectionsThread, this);
                         m_readThread   = new std::thread(&Server::readSocketsThread, this);
+                        m_writeThread  = new std::thread(&Server::writeSocketThread, this);
                         for(uint32_t i = 0; i < m_nbReadThread; i++)
                             m_handleThread[i] = new std::thread(&Server::handleMessagesThread, this, i);
                     }
@@ -184,7 +189,7 @@ class Server
         }
 
         /* \brief Wait for the Server to finish */
-        void waitServer()
+        void wait()
         {
             if(m_acceptThread)
             {
@@ -212,6 +217,13 @@ class Server
                     }
                 }
             }
+
+            if(m_writeThread)
+            {
+                m_writeThread->join();
+                delete m_writeThread;
+                m_writeThread = NULL;
+            }
         }
 
         /* \brief Close the server*/
@@ -236,6 +248,14 @@ class Server
                     m_readThread->join();
                 delete m_readThread;
                 m_readThread = NULL;
+            }
+
+            if(m_writeThread)
+            {
+                if(m_writeThread->joinable())
+                    m_writeThread->join();
+                delete m_writeThread;
+                m_writeThread = NULL;
             }
 
             if(m_handleThread)
@@ -274,7 +294,7 @@ class Server
             {
                 while(!m_buffers[i].empty())
                 {
-                    SocketMessage& msg = m_buffers[i].front();
+                    SocketMessage<T*>& msg = m_buffers[i].front();
                     free(msg.data);
                     m_buffers[i].pop();
                 }
@@ -287,6 +307,10 @@ class Server
             while(!m_mapMutex.try_lock())
                 m_mapMutex.unlock();
             m_mapMutex.unlock();
+
+            while(!m_writeMutex.try_lock())
+                m_writeMutex.unlock();
+            m_writeMutex.unlock();
         }
 
     protected:
@@ -307,7 +331,7 @@ class Server
             //INFO << "Client Disconnected\n";
             close(client);
             m_mapMutex.lock();
-                ClientSocket* cs = m_clientTable[client];
+                T* cs = m_clientTable[client];
                 if(cs != NULL)
                 {
                     cs->isConnected = false;
@@ -393,7 +417,7 @@ class Server
                             uint8_t* buf = (uint8_t*)malloc(sizeof(uint8_t)*count);
                             read(pfd.fd, buf, count);
                             m_mapMutex.lock();
-                                ClientSocket* client = m_clientTable[pfd.fd];
+                                T* client = m_clientTable[pfd.fd];
                                 //This case can appears when a message has arrived AFTER that a client has been disconnected.
                                 if(client == NULL) 
                                 {
@@ -421,7 +445,7 @@ class Server
          * \param bufID the buffer for which this thread has been called */
         void handleMessagesThread(uint32_t bufID)
         {
-            std::queue<SocketMessage>& buffer = m_buffers[bufID];
+            std::queue<SocketMessage<T*>>& buffer = m_buffers[bufID];
             while(!m_closeThread)
             {
                 //Sleep if no data
@@ -432,14 +456,14 @@ class Server
                 }
 
                 m_bufferMutexes[bufID].lock();
-                    SocketMessage& msg    = buffer.front();
-                    ClientSocket*  client = msg.client;
-                    uint8_t*       data   = msg.data;
-                    uint32_t       size   = msg.size;
+                    SocketMessage<T*>& msg    = buffer.front();
+                    T*                client = msg.client;
+                    uint8_t*          data   = msg.data;
+                    uint32_t          size   = msg.size;
                     buffer.pop();
                 m_bufferMutexes[bufID].unlock();
 
-                client->feedMessage(data, size);
+                onMessage(bufID, client, data, size);
 
                 //Delete the client after having parsed every messages
                 m_mapMutex.lock();
@@ -455,23 +479,58 @@ class Server
             }
         }
 
+        /* \brief Thread handling the write call */
+        void writeSocketThread()
+        {
+            while(!m_closeThread)
+            {
+                while(true)
+                {
+                    m_writeMutex.lock();
+                        if(m_writeBuffer.empty())
+                            break;
+                        SocketMessage<int>& msg = m_writeBuffer.front();
+                        m_writeBuffer.pop();
+                    m_writeMutex.unlock();
+
+                    write(msg.client, msg.data, msg.size);
+                }
+                usleep(10);
+            }
+        }
+
+        void writeMessage(SocketMessage<int>&& msg)
+        {
+            m_writeMutex.lock();
+                m_writeBuffer.push(msg);
+            m_writeMutex.unlock();
+        }
+
+        virtual void onMessage(uint32_t bufID, T* client, uint8_t* data, uint32_t size)
+        {
+            client->feedMessage(data, size);
+        }
+
         /*----------------------------------------------------------------------------*/
         /*----------------------------PROTECTED ATTRIBUTES----------------------------*/
         /*----------------------------------------------------------------------------*/
 
-        SOCKET                          m_sock          = SOCKET_ERROR; /*!< The server socket*/
-        ConcurrentVector<SOCKET>        m_clients;                      /*!< The clients*/
-        std::map<SOCKET, ClientSocket*> m_clientTable;
-        bool                            m_closeThread   = true;         /*!< Should we close the threads ?*/
-        std::thread*                    m_acceptThread  = NULL;         /*!< The accept connections thread*/
-        std::thread*                    m_readThread    = NULL;         /*!< The read sockets thread*/
-        std::thread**                   m_handleThread  = NULL;         /*!< The handle messages thread*/
-        std::mutex*                     m_bufferMutexes = NULL;         /*!< The buffer mutexes*/
-        std::mutex                      m_mapMutex;                     /*!< The map mutex*/
-        std::queue<SocketMessage>*      m_buffers;                      /*!< The buffers containing the sockets messages*/
-        uint32_t                        m_nbReadThread;                 /*!< The number of thread which will handles received messages*/
-        uint32_t                        m_currentBuffer = 0;            /*!< The current buffer to allocate the next connection*/
-        uint32_t                        m_port;                         /*!< The port to open*/
+        SOCKET                         m_sock          = SOCKET_ERROR; /*!< The server socket*/
+        ConcurrentVector<SOCKET>       m_clients;                      /*!< The clients*/
+        std::map<SOCKET, T*>           m_clientTable;
+        bool                           m_closeThread   = true;         /*!< Should we close the threads ?*/
+        std::thread*                   m_acceptThread  = NULL;         /*!< The accept connections thread*/
+        std::thread*                   m_readThread    = NULL;         /*!< The read sockets thread*/
+        std::thread**                  m_handleThread  = NULL;         /*!< The handle messages thread*/
+        std::thread*                   m_writeThread   = NULL;         /*!< The write message thread*/
+        std::mutex*                    m_bufferMutexes = NULL;         /*!< The buffer mutexes*/
+        std::mutex                     m_mapMutex;                     /*!< The map mutex*/
+        std::queue<SocketMessage<T*>>* m_buffers;                      /*!< The buffers containing the sockets messages*/
+        std::queue<SocketMessage<int>> m_writeBuffer;                  /*!< The write buffer*/
+        std::mutex                     m_writeMutex;                   /*!< The mutex associated with the write buffer*/
+        uint32_t                       m_nbReadThread;                 /*!< The number of thread which will handles received messages*/
+        uint32_t                       m_currentBuffer = 0;            /*!< The current buffer to allocate the next connection*/
+        uint32_t                       m_port;                         /*!< The port to open*/
 };
 
 #endif
