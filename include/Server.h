@@ -362,6 +362,7 @@ class Server
                     m_clientTable[client]  = obj;
                     obj->bufferID          = m_currentBuffer;
                     obj->socket            = client;
+                    obj->sockAddr          = clientAddr;
                     m_clients.pushBack(client);
                 m_mapMutex.unlock();
                 m_currentBuffer        = (m_currentBuffer + 1)%m_nbReadThread;

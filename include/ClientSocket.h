@@ -21,10 +21,12 @@ class ClientSocket
          * \param size the data size*/
         virtual bool feedMessage(uint8_t* data, uint32_t size);
 
-        uint32_t nbMessage   = 0;     /*!< The number of remaining message*/
-        bool     isConnected = true;  /*!< Is the client still connected ?*/
-        uint32_t bufferID;            /*!< The buffer ID which this client belongs to (Server information)*/
-        SOCKET   socket;              /*!< The Socket associated with this Client*/
+        uint32_t    nbMessage   = 0;    /*!< The number of remaining message*/
+        bool        isConnected = true; /*!< Is the client still connected ?*/
+        uint32_t    bufferID;           /*!< The buffer ID which this client belongs to (Server information)*/
+
+        SOCKET      socket;             /*!< The Socket associated with this Client*/
+        SOCKADDR_IN sockAddr;           /*!< The Socket address information*/
     private:
 };
 
