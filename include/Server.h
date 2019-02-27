@@ -34,23 +34,15 @@ namespace sereno
     struct SocketMessage
     {
         T client; /*!< The client who sends this message*/
-        uint8_t*      data;   /*!< The message*/
-        uint32_t      size;   /*!< The data size*/
+        std::shared_ptr<uint8_t> data;   /*!< The message*/
+        uint32_t      size;              /*!< The data size*/
 
         /* \brief Constructor
          * \param c the client who sends the message
          * \param d the client's data
          * \param s the data size in bytes */
-        SocketMessage(T c, uint8_t* d, uint32_t s) : client(c), data(d), size(s)
+        SocketMessage(T c, std::shared_ptr<uint8_t> d, uint32_t s) : client(c), data(d), size(s)
         {}
-
-        /* \brief The Copy Constructor
-         * \param copy the value to copy */
-        SocketMessage(const SocketMessage<T>& copy) : client(copy.client), size(copy.size)
-        {
-            data = (uint8_t*)malloc(sizeof(uint8_t*)*size);
-            memcpy(data, copy.data, size);
-        }
 
         /* \brief Operator= For SocketMessage. Called the copy constructor */
         SocketMessage& operator=(const SocketMessage<T>& copy)
@@ -60,15 +52,6 @@ namespace sereno
 
             new(this) SocketMessage(copy);
             return *this;
-        }
-
-        /* \brief The movement constructor
-         * \param mvt the value to move */
-        SocketMessage(SocketMessage<T>&& mvt) : client(mvt.client), data(mvt.data), size(mvt.size)
-        {
-            mvt.data   = NULL;
-            mvt.client = NULL;
-            mvt.size   = 0;
         }
     };
 
@@ -227,6 +210,14 @@ namespace sereno
                     delete m_writeThread;
                     m_writeThread = NULL;
                 }
+
+                for(uint32_t i = 0; i < m_nbReadThread; i++)
+                {
+                    std::thread* t = m_handleThread[i];
+                    t->join();
+                    delete t;
+                    m_handleThread[i] = NULL;
+                }
             }
 
             /* \brief Close the server*/
@@ -296,11 +287,7 @@ namespace sereno
                 for(uint32_t i = 0; i < m_nbReadThread; i++)
                 {
                     while(!m_buffers[i].empty())
-                    {
-                        SocketMessage<T*>& msg = m_buffers[i].front();
-                        free(msg.data);
                         m_buffers[i].pop();
-                    }
 
                     while(!m_bufferMutexes[i].try_lock())
                         m_bufferMutexes[i].unlock();
@@ -433,7 +420,8 @@ namespace sereno
                                 m_mapMutex.unlock();
 
                                 m_bufferMutexes[client->bufferID].lock();
-                                    m_buffers[client->bufferID].emplace(client, buf, count);    
+                                    std::shared_ptr<uint8_t> sharedBuf(buf);
+                                    m_buffers[client->bufferID].emplace(client, sharedBuf, count);    
                                 m_bufferMutexes[client->bufferID].unlock();
                             }
                         }
@@ -461,49 +449,57 @@ namespace sereno
 
                     m_bufferMutexes[bufID].lock();
                         SocketMessage<T*>& msg    = buffer.front();
-                        T*                client = msg.client;
-                        uint8_t*          data   = msg.data;
-                        uint32_t          size   = msg.size;
+                        T*       client = msg.client;
+                        uint32_t size   = msg.size;
+                        std::shared_ptr<uint8_t> data = msg.data;
                         buffer.pop();
                     m_bufferMutexes[bufID].unlock();
 
-                    onMessage(bufID, client, data, size);
+                    onMessage(bufID, client, data.get(), size);
 
                     //Delete the client after having parsed every messages
                     m_mapMutex.lock();
                         client->nbMessage--;
                         if(!client->isConnected && client->nbMessage == 0)
                         {
-                            delete client;
                             m_clientTable.erase(client->socket);
+                            delete client;
                         }
                     m_mapMutex.unlock();
-
-                    free(data);
                 }
             }
 
             /* \brief Thread handling the write call */
             void writeSocketThread()
             {
+                INFO << "In write thread...\n\n";
                 while(!m_closeThread)
                 {
                     while(true)
                     {
                         m_writeMutex.lock();
                             if(m_writeBuffer.empty())
+                            {
+                                m_writeMutex.unlock();
                                 break;
+                            }
                             SocketMessage<int>& msg = m_writeBuffer.front();
+                            int      client = msg.client;
+                            uint32_t size   = msg.size;
+                            std::shared_ptr<uint8_t> data = msg.data;
                             m_writeBuffer.pop();
                         m_writeMutex.unlock();
 
-                        write(msg.client, msg.data, msg.size);
+                        INFO << "Writting " << size << " bytes\n";
+                        write(client, data.get(), size);
                     }
                     usleep(10);
                 }
+
+                INFO << "Quitting write thread...\n";
             }
 
-            void writeMessage(SocketMessage<int>&& msg)
+            void writeMessage(SocketMessage<int>& msg)
             {
                 m_writeMutex.lock();
                     m_writeBuffer.push(msg);
