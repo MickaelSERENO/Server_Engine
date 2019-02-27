@@ -9,5 +9,5 @@ Description: basic library for creating server application
 Version: @VERSION@
 
 Requires:
-Libs: -L${libdir} -L${sharedlibdir} -lserenoLib
+Libs: -L${libdir} -L${sharedlibdir} -lserenoServer
 Cflags: -I${includedir}
