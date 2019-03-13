@@ -154,6 +154,14 @@ namespace sereno
             ConcurrentVector()
             {}
 
+            /* \brief  Movement constructor
+             * \param mvt the value to move */
+            ConcurrentVector(ConcurrentVector&& mvt)
+            {
+                m_data     = mvt.m_data;
+                mvt.m_data = NULL;
+            }
+
             ConcurrentVector(uint32_t n) : m_allocSize(n)
             {
                 m_data = (T*)Realloc(NULL, n*sizeof(T));

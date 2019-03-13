@@ -79,12 +79,10 @@ namespace sereno
 
             /** \brief the movement constructor
              * \param mvt the object to move*/
-            Server(Server&& mvt)
+            Server(Server&& mvt) : m_clients(std::move(mvt.m_clients)), m_clientTable(std::move(mvt.m_clientTable))
             {
                 //Copy data
                 m_sock          = mvt.m_sock;
-                m_clients       = std::move(mvt.m_clients);
-                m_clientTable   = std::move(mvt.m_clientTable);
                 m_closeThread   = mvt.m_closeThread;
                 m_acceptThread  = mvt.m_acceptThread;
                 m_readThread    = mvt.m_readThread;
@@ -102,7 +100,7 @@ namespace sereno
                 mvt.m_readThread    = NULL;
                 mvt.m_handleThread  = NULL;
                 mvt.m_writeThread   = NULL;
-                mvt.buffers         = NULL;
+                mvt.m_buffers       = NULL;
                 mvt.m_nbReadThread  = 0;
                 mvt.m_currentBuffer = 0;
             }
@@ -121,7 +119,7 @@ namespace sereno
 
             /* \brief Launch the Server and all the communication thread associated
              * \return true on success, false otherwise*/
-            bool launch()
+            virtual bool launch()
             {
                 m_closeThread = false;
                 //Create the socket and make it reusable
@@ -221,7 +219,7 @@ namespace sereno
             }
 
             /* \brief Close the server*/
-            void closeServer()
+            virtual void closeServer()
             {
                 INFO << "Closing" << std::endl;
                 /* Close every Threads */
@@ -316,7 +314,7 @@ namespace sereno
 
             /* \brief Close a Client socket. You can use m_clientTable to retrieve the ClientSocket object
              * \param client the socket to close. */
-            void closeClient(SOCKET client)
+            virtual void closeClient(SOCKET client)
             {
                 //INFO << "Client Disconnected\n";
                 close(client);
