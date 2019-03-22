@@ -341,7 +341,7 @@ namespace sereno
                 {
                     //Accept a client (socket)
                     SOCKADDR_IN clientAddr;
-                    socklen_t   clientAddrLen;
+                    socklen_t   clientAddrLen = sizeof(clientAddr);
                     SOCKET client = accept(m_sock, (SOCKADDR*)&clientAddr, &clientAddrLen);
                     //INFO << "New client connected\n";
                     m_mapMutex.lock();
