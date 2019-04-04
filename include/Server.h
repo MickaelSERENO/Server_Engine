@@ -418,7 +418,7 @@ namespace sereno
                                 m_mapMutex.unlock();
 
                                 m_bufferMutexes[client->bufferID].lock();
-                                    std::shared_ptr<uint8_t> sharedBuf(buf);
+                                    std::shared_ptr<uint8_t> sharedBuf(buf, free);
                                     m_buffers[client->bufferID].emplace(client, sharedBuf, count);    
                                 m_bufferMutexes[client->bufferID].unlock();
                             }
