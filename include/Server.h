@@ -8,6 +8,7 @@
 #include <sys/poll.h>
 #include <sys/ioctl.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <cstdio>
@@ -343,6 +344,10 @@ namespace sereno
                     SOCKADDR_IN clientAddr;
                     socklen_t   clientAddrLen = sizeof(clientAddr);
                     SOCKET client = accept(m_sock, (SOCKADDR*)&clientAddr, &clientAddrLen);
+
+                    //No delay
+                    int one = 1;
+                    setsockopt(client, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
                     //INFO << "New client connected\n";
                     m_mapMutex.lock();
                         //Create a ClientSocket associated
@@ -423,8 +428,6 @@ namespace sereno
                                 m_bufferMutexes[client->bufferID].unlock();
                             }
                         }
-
-                        //TODO Maybe add a Ping here
                     }
                     std::this_thread::sleep_for(std::chrono::microseconds(10));
                 }
