@@ -75,6 +75,8 @@ namespace sereno
                 //Allocate memory for the handle messages thread
                 m_buffers       = new std::queue<SocketMessage<T*>>[nbReadThread];
                 m_handleThread  = new std::thread*[nbReadThread];
+                for(uint32_t i = 0; i < nbReadThread; i++)
+                    m_handleThread[i] = NULL;
                 m_bufferMutexes = new std::mutex[nbReadThread];
             }
 
@@ -122,6 +124,9 @@ namespace sereno
              * \return true on success, false otherwise*/
             virtual bool launch()
             {
+                if(m_isLaunch)
+                    closeServer();
+                m_isLaunch = true;
                 m_closeThread = false;
                 //Create the socket and make it reusable
                 m_sock   = socket(AF_INET, SOCK_STREAM, 0);
@@ -173,82 +178,16 @@ namespace sereno
                 return true;
             }
 
-            /* \brief Wait for the Server to finish */
-            void wait()
+            void cancel()
             {
-                if(m_acceptThread)
-                {
-                    m_acceptThread->join();
-                    delete m_acceptThread;
-                    m_acceptThread = NULL;
-                }
+                if(!m_isLaunch)
+                    return;
 
-                if(m_readThread)
-                {
-                    m_readThread->join();
-                    delete m_readThread;
-                    m_readThread = NULL;
-                }
-
-                if(m_handleThread)
-                {
-                    for(uint32_t i = 0; i < m_nbReadThread; i++)
-                    {
-                        if(m_handleThread[i])
-                        {
-                            m_handleThread[i]->join();
-                            delete m_handleThread[i];
-                            m_handleThread[i] = NULL;
-                        }
-                    }
-                }
-
-                if(m_writeThread)
-                {
-                    m_writeThread->join();
-                    delete m_writeThread;
-                    m_writeThread = NULL;
-                }
-
-                for(uint32_t i = 0; i < m_nbReadThread; i++)
-                {
-                    std::thread* t = m_handleThread[i];
-                    t->join();
-                    delete t;
-                    m_handleThread[i] = NULL;
-                }
-            }
-
-            /* \brief Close the server*/
-            virtual void closeServer()
-            {
-                INFO << "Closing" << std::endl;
                 /* Close every Threads */
                 m_closeThread = true;
                 if(m_acceptThread)
                 {
-                    if(m_acceptThread->native_handle() != 0)
-                    {
-                        pthread_cancel(m_acceptThread->native_handle());
-                        m_acceptThread->join();
-                    }
-                    delete m_acceptThread;
-                    m_acceptThread = NULL;
-                }
-                if(m_readThread)
-                {
-                    if(m_readThread->joinable())
-                        m_readThread->join();
-                    delete m_readThread;
-                    m_readThread = NULL;
-                }
-
-                if(m_writeThread)
-                {
-                    if(m_writeThread->joinable())
-                        m_writeThread->join();
-                    delete m_writeThread;
-                    m_writeThread = NULL;
+                    pthread_cancel(m_acceptThread->native_handle());
                 }
 
                 if(m_handleThread)
@@ -257,31 +196,13 @@ namespace sereno
                     {
                         if(m_handleThread[i])
                         {
-                            pthread_cancel(m_handleThread[i]->native_handle());
-                            m_handleThread[i]->join();
-                            delete m_handleThread[i];
-                            m_handleThread[i] = NULL;
+                            if(m_handleThread[i]->joinable())
+                            {
+                                pthread_cancel(m_handleThread[i]->native_handle());
+                            }
                         }
                     }
                 }
-
-                //Close the socket
-                //
-                //The server
-                if(m_sock != SOCKET_ERROR)
-                    close(m_sock);
-                m_sock = SOCKET_ERROR;
-
-                //The clients
-                for(SOCKET* sock : m_clients)
-                    close(*sock);
-
-                //Empty data
-                m_clients.clear();
-
-                for(auto& client : m_clientTable)
-                    delete client.second;
-                m_clientTable.clear();
 
                 for(uint32_t i = 0; i < m_nbReadThread; i++)
                 {
@@ -300,7 +221,115 @@ namespace sereno
                 while(!m_writeMutex.try_lock())
                     m_writeMutex.unlock();
                 m_writeMutex.unlock();
+                m_isLaunch = false;
             }
+
+            /* \brief Wait for the Server to finish */
+            void wait()
+            {
+                if(!m_isLaunch)
+                    return;
+
+                if(m_acceptThread && m_acceptThread->joinable())
+                {
+                    m_acceptThread->join();
+                }
+
+                if(m_readThread && m_readThread->joinable())
+                {
+                    m_readThread->join();
+                }
+
+                if(m_handleThread)
+                {
+                    for(uint32_t i = 0; i < m_nbReadThread; i++)
+                    {
+                        if(m_handleThread[i] && m_handleThread[i]->joinable())
+                        {
+                            m_handleThread[i]->join();
+                        }
+                    }
+                }
+
+                if(m_writeThread && m_writeThread->joinable())
+                {
+                    m_writeThread->join();
+                }
+
+                for(uint32_t i = 0; i < m_nbReadThread; i++)
+                {
+                    std::thread* t = m_handleThread[i];
+                    if(t && t->joinable())
+                        t->join();
+                }
+            }
+
+            /* \brief Close the server*/
+            virtual void closeServer()
+            {
+                cancel();
+                wait();
+                if(m_acceptThread)
+                {
+                    delete m_acceptThread;
+                    m_acceptThread = NULL;
+                }
+
+                if(m_readThread)
+                {
+                    delete m_readThread;
+                    m_readThread = NULL;
+                }
+
+                if(m_writeThread)
+                {
+                    delete m_writeThread;
+                    m_writeThread = NULL;
+                }
+
+                if(m_handleThread)
+                {
+                    for(uint32_t i = 0; i < m_nbReadThread; i++)
+                    {
+                        if(m_handleThread[i])
+                        {
+                            delete m_handleThread[i];
+                            m_handleThread[i] = NULL;
+                        }
+                    }
+                }
+
+                //Close the socket
+                //
+                //The server
+                
+                INFO << "Close the Socket\n";
+                if(m_sock != SOCKET_ERROR)
+                    close(m_sock);
+                m_sock = SOCKET_ERROR;
+
+                //The clients
+                for(SOCKET* sock : m_clients)
+                    close(*sock);
+
+                //Empty data
+                m_clients.clear();
+
+                for(auto& client : m_clientTable)
+                    delete client.second;
+                m_clientTable.clear();
+
+            }
+
+            /** \brief  Lock the write thread */
+            void lockWriteThread() {m_writeMutex.lock();}
+
+            /** \brief  Unlock the write thread */
+            void unlockWriteThread() {m_writeMutex.unlock();}
+
+            /** \brief  Get the number of bytes being written by this Server application. The write thread needs to be locked
+             * \return   The number of bytes remaining to write to empty the write buffer*/
+            uint32_t getBytesInWriting() const {return m_bytesInWriting;}
 
         protected:
             /* \brief No copy Constructor */
@@ -345,20 +374,23 @@ namespace sereno
                     socklen_t   clientAddrLen = sizeof(clientAddr);
                     SOCKET client = accept(m_sock, (SOCKADDR*)&clientAddr, &clientAddrLen);
 
-                    //No delay
-                    int one = 1;
-                    setsockopt(client, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
-                    //INFO << "New client connected\n";
-                    m_mapMutex.lock();
-                        //Create a ClientSocket associated
-                        T* obj                 = new T();
-                        m_clientTable[client]  = obj;
-                        obj->bufferID          = m_currentBuffer;
-                        obj->socket            = client;
-                        obj->sockAddr          = clientAddr;
-                        m_clients.pushBack(client);
-                    m_mapMutex.unlock();
-                    m_currentBuffer        = (m_currentBuffer + 1)%m_nbReadThread;
+                    if(client)
+                    {
+                        //No delay
+                        int one = 1;
+                        setsockopt(client, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
+                        //INFO << "New client connected\n";
+                        m_mapMutex.lock();
+                            //Create a ClientSocket associated
+                            T* obj                 = new T();
+                            m_clientTable[client]  = obj;
+                            obj->bufferID          = m_currentBuffer;
+                            obj->socket            = client;
+                            obj->sockAddr          = clientAddr;
+                            m_clients.pushBack(client);
+                        m_mapMutex.unlock();
+                        m_currentBuffer        = (m_currentBuffer + 1)%m_nbReadThread;
+                    }
                 }
             }
 
@@ -444,7 +476,7 @@ namespace sereno
                     //Sleep if no data
                     if(buffer.size() == 0)
                     {
-                        usleep(10);
+                        usleep(5);
                         continue;
                     }
 
@@ -491,10 +523,13 @@ namespace sereno
                             m_writeBuffer.pop();
                         m_writeMutex.unlock();
 
-                        INFO << "Writting " << size << " bytes\n";
+                        INFO << "Writing " << size << " bytes\n";
                         write(client, data.get(), size);
+                        m_writeMutex.lock();
+                            m_bytesInWriting -= size;
+                        m_writeMutex.unlock();
                     }
-                    usleep(10);
+                    usleep(5);
                 }
 
                 INFO << "Quitting write thread...\n";
@@ -503,6 +538,7 @@ namespace sereno
             void writeMessage(SocketMessage<int>& msg)
             {
                 m_writeMutex.lock();
+                    m_bytesInWriting += msg.size;
                     m_writeBuffer.push(msg);
                 m_writeMutex.unlock();
             }
@@ -532,6 +568,8 @@ namespace sereno
             uint32_t                       m_nbReadThread;                 /*!< The number of thread which will handles received messages*/
             uint32_t                       m_currentBuffer = 0;            /*!< The current buffer to allocate the next connection*/
             uint32_t                       m_port;                         /*!< The port to open*/
+            uint32_t                       m_bytesInWriting = 0;          /*!< Number of bytes currently being written*/
+            bool                           m_isLaunch = false;
     };
 }
 
