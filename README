@@ -1,0 +1,5 @@
+This library (for UNIX systems) proposes basics functionalities for TCP/IP communications. It proposes multiple thread to :
+    -Accept the connection
+    -Read data (and disconnect people)
+    -Handle the data in multiple threads received over the read thread
+    -Handle the writing process
