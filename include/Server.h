@@ -113,9 +113,17 @@ namespace sereno
             {
                 closeServer();
                 if(m_buffers)
-                    delete[] m_buffers;
+                   delete[] m_buffers;
                 if(m_handleThread)
-                    delete   m_handleThread;
+                {
+                    for(uint32_t i = 0; i < m_nbReadThread; i++)
+                        if(m_handleThread[i])
+                        {
+                            delete m_handleThread[i];
+                            m_handleThread[i] = NULL;
+                        }
+                    delete[]  m_handleThread;
+                }
                 if(m_bufferMutexes)
                     delete[] m_bufferMutexes;
             }
@@ -178,14 +186,14 @@ namespace sereno
                 return true;
             }
 
-            void cancel()
+            virtual void cancel()
             {
                 if(!m_isLaunch)
                     return;
 
                 /* Close every Threads */
                 m_closeThread = true;
-                if(m_acceptThread)
+                if(m_acceptThread && m_acceptThread->joinable())
                 {
                     pthread_cancel(m_acceptThread->native_handle());
                 }
@@ -225,7 +233,7 @@ namespace sereno
             }
 
             /* \brief Wait for the Server to finish */
-            void wait()
+            virtual void wait()
             {
                 if(!m_isLaunch)
                     return;
@@ -353,12 +361,13 @@ namespace sereno
                     if(cs != NULL)
                     {
                         cs->isConnected = false;
-                        if(cs->nbMessage == 0)
+                        //if(cs->nbMessage == 0)
                         {
                             delete cs;
-                            m_clientTable.erase(client);
                         }
                     }
+                    m_clientTable.erase(client);
+
                 m_mapMutex.unlock();
 
                 m_clients.erase(client);
@@ -383,10 +392,10 @@ namespace sereno
                         m_mapMutex.lock();
                             //Create a ClientSocket associated
                             T* obj                 = new T();
-                            m_clientTable[client]  = obj;
                             obj->bufferID          = m_currentBuffer;
                             obj->socket            = client;
                             obj->sockAddr          = clientAddr;
+                            m_clientTable[client]  = obj;
                             m_clients.pushBack(client);
                         m_mapMutex.unlock();
                         m_currentBuffer        = (m_currentBuffer + 1)%m_nbReadThread;
@@ -517,16 +526,17 @@ namespace sereno
                                 break;
                             }
                             SocketMessage<int>& msg = m_writeBuffer.front();
-                            int      client = msg.client;
-                            uint32_t size   = msg.size;
+                            int size   = msg.size;
+                            int client = msg.client;
                             std::shared_ptr<uint8_t> data = msg.data;
-                            m_writeBuffer.pop();
                         m_writeMutex.unlock();
 
-                        INFO << "Writing " << size << " bytes\n";
+                        INFO << "Writing " << msg.size << " bytes\n";
                         write(client, data.get(), size);
+
                         m_writeMutex.lock();
                             m_bytesInWriting -= size;
+                            m_writeBuffer.pop();
                         m_writeMutex.unlock();
                     }
                     usleep(5);
