@@ -276,6 +276,19 @@ namespace sereno
             virtual void closeServer()
             {
                 cancel();
+
+                //Close the sockets. We do that first for not handing with "no ending" sockets not responding...
+                //
+                //The server
+                INFO << "Close the Socket\n";
+                if(m_sock != SOCKET_ERROR)
+                    close(m_sock);
+                m_sock = SOCKET_ERROR;
+
+                //The clients
+                for(SOCKET* sock : m_clients)
+                    close(*sock);
+
                 wait();
                 if(m_acceptThread)
                 {
@@ -307,18 +320,6 @@ namespace sereno
                     }
                 }
 
-                //Close the socket
-                //
-                //The server
-                
-                INFO << "Close the Socket\n";
-                if(m_sock != SOCKET_ERROR)
-                    close(m_sock);
-                m_sock = SOCKET_ERROR;
-
-                //The clients
-                for(SOCKET* sock : m_clients)
-                    close(*sock);
 
                 //Empty data
                 m_clients.clear();
@@ -356,19 +357,16 @@ namespace sereno
             {
                 //INFO << "Client Disconnected\n";
                 close(client);
-                m_mapMutex.lock();
-                    T* cs = m_clientTable[client];
-                    if(cs != NULL)
+                T* cs = m_clientTable[client];
+                if(cs != NULL)
+                {
+                    cs->isConnected = false;
+                    //if(cs->nbMessage == 0)
                     {
-                        cs->isConnected = false;
-                        //if(cs->nbMessage == 0)
-                        {
-                            delete cs;
-                        }
+                        delete cs;
                     }
-                    m_clientTable.erase(client);
-
-                m_mapMutex.unlock();
+                }
+                m_clientTable.erase(client);
 
                 m_clients.erase(client);
             }
@@ -428,7 +426,9 @@ namespace sereno
                         if(pfd.revents & POLLHUP ||
                            pfd.revents & POLLERR)
                         {
-                            closeClient(pfd.fd);
+                            m_mapMutex.lock();
+                                closeClient(pfd.fd);
+                            m_mapMutex.unlock();
                             continue;
                         }
 
@@ -441,7 +441,9 @@ namespace sereno
                             //No data -> disconnection
                             if(count == 0)
                             {
-                                closeClient(pfd.fd);
+                                m_mapMutex.lock();
+                                    closeClient(pfd.fd);
+                                m_mapMutex.unlock();
                                 continue;
                             }
 
