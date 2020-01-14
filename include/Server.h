@@ -286,8 +286,10 @@ namespace sereno
                 m_sock = SOCKET_ERROR;
 
                 //The clients
-                for(SOCKET* sock : m_clients)
-                    close(*sock);
+                m_mapMutex.lock();
+                for(auto& it : m_clientTable)
+                    it.second->close();
+                m_mapMutex.unlock();
 
                 wait();
                 if(m_acceptThread)
@@ -338,7 +340,16 @@ namespace sereno
 
             /** \brief  Get the number of bytes being written by this Server application. The write thread needs to be locked
              * \return   The number of bytes remaining to write to empty the write buffer*/
-            uint32_t getBytesInWriting() const {return m_bytesInWriting;}
+            uint32_t getBytesInWriting()
+            {
+                uint32_t res = m_bytesInWriting;
+
+                m_mapMutex.lock();
+                    for(auto& it : m_clientTable)
+                        res += it.second->getBytesInWriting();
+                m_mapMutex.unlock();
+                return m_bytesInWriting;
+            }
 
         protected:
             /* \brief No copy Constructor */
@@ -356,11 +367,10 @@ namespace sereno
             virtual void closeClient(SOCKET client)
             {
                 //INFO << "Client Disconnected\n";
-                close(client);
                 T* cs = m_clientTable[client];
                 if(cs != NULL)
                 {
-                    cs->isConnected = false;
+                    cs->close();
                     //if(cs->nbMessage == 0)
                     {
                         delete cs;
@@ -504,7 +514,7 @@ namespace sereno
                     //Delete the client after having parsed every messages
                     m_mapMutex.lock();
                         client->nbMessage--;
-                        if(!client->isConnected && client->nbMessage == 0)
+                        if(!client->isConnected() && client->nbMessage == 0)
                         {
                             m_clientTable.erase(client->socket);
                             delete client;
@@ -531,14 +541,24 @@ namespace sereno
                             int size   = msg.size;
                             int client = msg.client;
                             std::shared_ptr<uint8_t> data = msg.data;
+                            m_writeBuffer.pop();
                         m_writeMutex.unlock();
 
                         INFO << "Writing " << msg.size << " bytes\n";
-                        write(client, data.get(), size);
+                        m_mapMutex.lock();
+                        if(m_clientTable.find(msg.client) != m_clientTable.end())
+                        {
+                            m_clientTable[msg.client]->pushPacket(data, size);
+                            m_mapMutex.unlock();
+                        }
+                        else
+                        {
+                            m_mapMutex.unlock();
+                            write(client, data.get(), size);
+                        }
 
                         m_writeMutex.lock();
                             m_bytesInWriting -= size;
-                            m_writeBuffer.pop();
                         m_writeMutex.unlock();
                     }
                     usleep(5);
