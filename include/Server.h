@@ -229,7 +229,6 @@ namespace sereno
                 while(!m_writeMutex.try_lock())
                     m_writeMutex.unlock();
                 m_writeMutex.unlock();
-                m_isLaunch = false;
             }
 
             /* \brief Wait for the Server to finish */
@@ -276,6 +275,7 @@ namespace sereno
             virtual void closeServer()
             {
                 cancel();
+                wait();
 
                 //Close the sockets. We do that first for not handing with "no ending" sockets not responding...
                 //
@@ -291,7 +291,6 @@ namespace sereno
                     it.second->close();
                 m_mapMutex.unlock();
 
-                wait();
                 if(m_acceptThread)
                 {
                     delete m_acceptThread;
@@ -322,7 +321,6 @@ namespace sereno
                     }
                 }
 
-
                 //Empty data
                 m_clients.clear();
 
@@ -330,6 +328,7 @@ namespace sereno
                     delete client.second;
                 m_clientTable.clear();
 
+                m_isLaunch = false;
             }
 
             /** \brief  Lock the write thread */
