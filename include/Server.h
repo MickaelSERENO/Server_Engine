@@ -370,7 +370,7 @@ namespace sereno
                 if(cs != NULL)
                 {
                     cs->close();
-                    //if(cs->nbMessage == 0)
+                    if(cs->nbMessage == 0)
                     {
                         delete cs;
                     }
