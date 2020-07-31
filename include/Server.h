@@ -370,13 +370,12 @@ namespace sereno
                 if(cs != NULL)
                 {
                     cs->close();
-                    //if(cs->nbMessage == 0)
+                    if(cs->nbMessage == 0)
                     {
                         delete cs;
                     }
                 }
                 m_clientTable.erase(client);
-
                 m_clients.erase(client);
             }
 
@@ -543,7 +542,7 @@ namespace sereno
                             m_writeBuffer.pop();
                         m_writeMutex.unlock();
 
-                        INFO << "Writing " << msg.size << " bytes\n";
+                        //INFO << "Writing " << msg.size << " bytes\n";
                         m_mapMutex.lock();
                         if(m_clientTable.find(msg.client) != m_clientTable.end())
                         {
